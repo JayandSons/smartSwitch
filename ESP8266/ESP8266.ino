@@ -7,70 +7,168 @@ Details sent to the chip from the app
 String homeWiFiName;          //Name of the network that the chip and the app will be in
 int homeWiFiNameLength;
 String homeWiFiPassword;      //Password of the above network
-int homeWiFiPasswordLength;  
-String appPassword;           //Password of the user app which will be combined with the MAC of the chip to produce the uuid
-int appPasswordLength;
+int homeWiFiPasswordLength; 
+const int NUMBER_OF_THINGS_TO_BE_RECEIVED = 2; 
+
 
 /*********************************************
 Variables that is created and used in the chip
 *********************************************/
-String uuid;                           //uuid(MAC + password of the app) for the chip that will be used to control the chip over the cloud
+String uuid;                           //uuid(MAC address) for the chip that will be used to control the chip over the cloud
 unsigned char eepromStorage[100];      //Used as a buffer for the EEPROM functions
 int userConnectedFlag;                 //Prevents from accessing two users getting connected to chip WiFi
+int chipHasADefinedState;              //When this is one that means the chip has all the details to get connected to home WiFi and there is a user connected to it
 WiFiServer server(80);                 //When the chip is an accesspoint it listens to port 80 for client requests
+WiFiClient client;                     //To talk to the client connected
+String request;                        //Buffer for what is sent from the app
+String response;                       //Buffer for what is sent to the app
+int checksum;                          //Storage for the checksum received with the request
 
-void setup() {
-  String temp = "SomethingElse";
-  
-  initPins();
-  Serial.println(temp);
-  setupWiFi();
-  EEPROM.begin(512);
-  homeWiFiName = "myass";
-  eepromStorageLoad(homeWiFiName, eepromStorage, 0);
-  eepromWrite(0, homeWiFiName.length(), eepromStorage);
-  eepromRead(0, homeWiFiName.length(), eepromStorage);
-  temp = charArrayToString(eepromStorage, homeWiFiName.length());
-  Serial.println(temp);
+void LEDBlink()
+{
+  //If HIGH, turn LOW
+  if(digitalRead(0))
+    digitalWrite(0, LOW); 
+  //If LOW, turn HIGH
+  else                                   
+    digitalWrite(0, HIGH);
+
+  delay(750);
 }
 
-void loop() {
-  // Check if a client has connected
-  WiFiClient client = server.available();
-  if (!client) {
-    return;
+void defineAState()
+{
+  //Reading the flag for the state of the chip and updating the correponding state variable
+  eepromRead(0, 1, eepromStorage);    
+  chipHasADefinedState = eepromStorage[0];
+
+  //This means the chip has a defined state and no need to connect to user app
+  if(chipHasADefinedState)
+  {
+    //Acquiring the home WiFi network name from the EEPROM and storing it in the correponding variable
+    eepromRead(1, homeWiFiNameLength, eepromStorage);
+    homeWiFiName = charArrayToString(eepromStorage, homeWiFiNameLength);
+
+    //Acquiring the home WiFi network name from the EEPROM and storing it in the correponding variable
+    eepromRead(1, homeWiFiPasswordLength, eepromStorage);
+    homeWiFiPassword = charArrayToString(eepromStorage, homeWiFiPasswordLength);
+
+    //Acquiring the uuid of the chip from the EEPROM and storing it in the correponding variable
+    eepromRead(1, WL_MAC_ADDR_LENGTH, eepromStorage);
+    uuid = charArrayToString(eepromStorage, WL_MAC_ADDR_LENGTH);
+
+    digitalWrite(0, HIGH);    //Make the LED solid and let the user know that the switch is online
+  }
+  //No previously defined state, so connect to the user app and get the details to go online
+  else
+  {
+    int i;
+    
+    setupWiFi();              //Make the chip an access point acquire the uuid
+    for(i = 0; i < NUMBER_OF_THINGS_TO_BE_RECEIVED; i++)
+    {
+      //Iterate till the right thing is received
+      while(1)
+      {
+        LEDBlink();           //Letting the user know the switch is waiting to receive data from the app
+        
+        // Check if a client has connected
+        client = server.available();
+        if (!client)
+        {
+          continue;
+        }
+
+        //Expecting the name of the home WiFi
+        if(i == 0)
+        {
+          //Check if what was sent was what was actually received, if it is update the corresponding variable, send confimraiton response, and break the loop
+          if(requestCleanUp(&homeWiFiNameLength))
+          {
+            homeWiFiName = request;   
+
+            //Send the response to the client
+            response = "HTTP/1.1 406 OK\r\n";
+            client.print(response);
+            
+            break;
+          }
+          //Checksum difference, ask for it again
+          else
+          {
+            //Send the response to the client
+            response = "HTTP/1.1 406 Not Acceptable\r\n";
+            client.print(response);
+            continue; 
+          }
+        }
+        //Expecting the password of the home WiFi
+        else
+        {
+          
+        }
+      }
+    }
+  }
+}
+void setup() {
+  initComs();
+  initPins();
+}
+
+int calcChecksum()
+{
+  int i;
+  int localChecksum = 0;
+
+  for(i = 0; i < request.length(); i++)
+  {
+    localChecksum += int(request.charAt(i));
   }
 
-  // Read the first line of the request
-  String req = client.readStringUntil('\r');
-  req.remove(0, 5);
-  req.remove(req.length() - 9, req.length());
-  Serial.println(req);
-  client.flush();
+  return (localChecksum % 10);
+}
 
-  if (req.indexOf("/led/0") != -1)
-    Serial.println(req);
+bool requestCleanUp(int * howLong)
+{
+  int localChecksum;
+  
+  // Read the first line of the request
+  request = client.readStringUntil('\r'); 
+
+  request.remove(0, 5);                                           //Remove the http part
+  request.remove(request.length() - 9, request.length());         //Remove the unnecessary tail
+  checksum = request.charAt(request.length() - 1);          //Last character is the checksum value
+  request.remove(request.length() - 1, request.length());         //Remove the checksum character to get the required data
+  * howLong = request.length();                                   //Storing the length in the corresponding variable
   
   client.flush();
 
-  // Prepare the response. Start with the common header:
-  String s = "HTTP/1.1 200 OK\r\n";
-  s += "Content-Type: text/html\r\n\r\n";
-  s += "<!DOCTYPE HTML>\r\n<html>\r\n";
+  localChecksum = calcChecksum();
 
-  s += "</html>\n";
+  return (checksum == localChecksum);
+}
+void loop() {
+ 
+}
 
-  // Send the response to the client
-  client.print(s);
-  Serial.println("Client disonnected");
+void initComs()
+{
+  Serial.begin(115200);       //This is for debugging purposes?????????????????????????????????????????????
+  EEPROM.begin(512);          //Starting the link with the EEPROM
 }
 
 void initPins()
 {
-  Serial.begin(115200);       //This is for debugging purposes?????????????????????????????????????????????
-  pinMode(0, OUTPUT);         //Making GPIO0 an output for the LED
+  //LED
+  pinMode(0, OUTPUT);         
   digitalWrite(0, LOW);
-  pinMode(2, OUTPUT);         //Making GPIO2 an output for the relay       
+
+  //Relay
+  pinMode(2, OUTPUT); 
+
+  //Reset switch
+  pinMode(3, INPUT);               
 }
 
 void setupWiFi()
@@ -123,30 +221,23 @@ void eepromWrite(int startingAddress, int numberOfBytes, unsigned char * eepromS
   }
 }
 
-void eepromStorageLoad(String source, unsigned char * eepromStorage, int clear)
+void eepromStorageLoad(String source, unsigned char * eepromStorage)
 {
   int i;
   
   for(i = 0; i < source.length(); i++)
   {
-    //Clearing the EEPROM
-    if(clear)
-    {
-      eepromStorage[i] = 255;   //Clear value is 255 because no ASCII character is 255
-    }
-    //Writing source buffer
-    else
-      eepromStorage[i] = source.charAt(i);
+    eepromStorage[i] = source.charAt(i);
   }
 }
 
-String charArrayToString(unsigned char * temp, int big)
+String charArrayToString(unsigned char * charArrayToBeConverted, int numberOfCharacters)
 {
-  String tempi;
-  for(int i = 0; i < big; i++)
+  String temp;
+  for(int i = 0; i < numberOfCharacters; i++)
   {
-    tempi += String(char (temp[i]));       
+    temp += String(char (charArrayToBeConverted[i]));       
   }
-  return tempi;
+  return temp;
 }
 
