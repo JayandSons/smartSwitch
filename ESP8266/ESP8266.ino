@@ -4,11 +4,11 @@
 /************************************
 Details sent to the chip from the app
 ************************************/
-String homeWiFiName;          //Name of the network that the chip and the app will be in
+String homeWiFiName;                                      //Name of the network that the chip and the app will be in
 int homeWiFiNameLength;
-String homeWiFiPassword;      //Password of the above network
+String homeWiFiPassword;                                  //Password of the above network
 int homeWiFiPasswordLength; 
-const int NUMBER_OF_THINGS_TO_BE_RECEIVED = 2; 
+const int NUMBER_OF_THINGS_COMMUNICATED = 3;              //How many things the phone app and the chip share 
 
 
 /*********************************************
@@ -22,7 +22,7 @@ WiFiServer server(80);                 //When the chip is an accesspoint it list
 WiFiClient client;                     //To talk to the client connected
 String request;                        //Buffer for what is sent from the app
 String response;                       //Buffer for what is sent to the app
-//int checksum;                          //Storage for the checksum received with the request
+
 
 void LEDBlink()
 {
@@ -45,31 +45,33 @@ void defineAState()
   //This means the chip has a defined state and no need to connect to user app
   if(chipHasADefinedState == 1)
   {
-    //Acquiring the home WiFi network name from the EEPROM and storing it in the correponding variable
-    eepromRead(1, homeWiFiNameLength, eepromStorage);
+    //Acquiring the home WiFi network name and length of it from the EEPROM and storing them in the correponding variables
+    eepromRead(1, 1, eepromStorage);
+    homeWiFiNameLength = eepromStorage[0];
+    eepromRead(2, homeWiFiNameLength, eepromStorage);
     homeWiFiName = charArrayToString(eepromStorage, homeWiFiNameLength);
 
-    //Acquiring the home WiFi network name from the EEPROM and storing it in the correponding variable
-    eepromRead(1, homeWiFiPasswordLength, eepromStorage);
+    //Acquiring the home WiFi network password and length of it from the EEPROM and storing them in the correponding variables
+    eepromRead((2 + homeWiFiNameLength), 1, eepromStorage);
+    homeWiFiPasswordLength = eepromStorage[0];
+    eepromRead((3 + homeWiFiNameLength), homeWiFiPasswordLength, eepromStorage);
     homeWiFiPassword = charArrayToString(eepromStorage, homeWiFiPasswordLength);
 
     //Acquiring the uuid of the chip from the EEPROM and storing it in the correponding variable
-    eepromRead(1, WL_MAC_ADDR_LENGTH, eepromStorage);
+    eepromRead((3 + homeWiFiNameLength + homeWiFiPasswordLength), WL_MAC_ADDR_LENGTH, eepromStorage);
     uuid = charArrayToString(eepromStorage, WL_MAC_ADDR_LENGTH);
-
-    digitalWrite(0, HIGH);    //Make the LED solid and let the user know that the switch is online
   }
   //No previously defined state, so connect to the user app and get the details to go online
   else
   {
     int i = 0;
     
-    setupWiFi();             //Make the chip an access point acquire the uuid
+    setupWiFi();             //Letting the user know the chip has to be set up since it didn't have a previous state
     
     //Iterate till the right thing is received
     while(1)
     {
-      LEDBlink();           //Letting the user know the switch is waiting to receive data from the app
+      LEDBlink();            //Letting the user know the switch is waiting to receive data from the app
       
       // Check if a client has connected
       client = server.available();
@@ -95,7 +97,7 @@ void defineAState()
         i++;
       }
       //Expecting the password of the home WiFi
-      else 
+      else if(i == 1)
       {
         requestCleanUp(&homeWiFiPasswordLength);
         homeWiFiPassword = request;   
@@ -105,14 +107,45 @@ void defineAState()
         client.stop();
         i++;
       }
-
-      //Received both things, break out of the loop
-      if(i == NUMBER_OF_THINGS_TO_BE_RECEIVED)
+      //Reponding the phone's request to obtain the uuid
+      else
       {
+        //Send the response to the client
+        response = "HTTP/1.1 200 OK\r\n";
+        response += "Content-Type: text/html\r\n\r\n";
+        response += "<!DOCTYPE HTML>\r\n<html>\r\n";
+        response += uuid;
+        response += "</html>\n";
+        client.print(response);
+        client.stop();
+        i++;
+      }
+      //Received both things, break out of the loop
+      if(i == NUMBER_OF_THINGS_COMMUNICATED)
+      {
+        chipHasADefinedState = 1;
         break;
       }
-      
     }
+
+    //Communication between the phone and chip is done. Write the data to EEPROM
+    eepromStorage[0] = chipHasADefinedState;
+    eepromWrite(0, 1, eepromStorage);
+
+    eepromStorage[0] = homeWiFiNameLength;
+    eepromWrite(1, 1, eepromStorage);
+    eepromStorageLoad(homeWiFiName, epromStorage);
+    eepromWrite(2, homeWiFiNameLength, eepromStorage);
+
+    eepromStorage[0] = homeWiFiPasswordLength;
+    eepromWrite((2 + homeWiFiNameLength), 1, eepromStorage);
+    eepromStorageLoad(homeWiFiName, epromStorage);
+    eepromWrite((3 + homeWiFiNameLength), homeWiFiPasswordLength, eepromStorage);
+
+    //No need to store the size of the MAC ID because it is a constant 
+    eepromStorageLoad(uuid, epromStorage);
+    eepromWrite((3 + homeWiFiNameLength + homeWiFiPasswordLength), WL_MAC_ADDR_LENGTH, eepromStorage);
+    
   }
 }
 
@@ -124,41 +157,20 @@ void setup() {
   Serial.println(homeWiFiPassword);
 }
 
-/*
-int calcChecksum()
-{
-  int i;
-  int localChecksum = 0;
-
-  for(i = 0; i < request.length(); i++)
-  {
-    localChecksum += int(request.charAt(i));
-  }
-
-  return (localChecksum % 10);
-}
-*/
 
 void requestCleanUp(int * howLong)
 {
   //int localChecksum;
   
-  // Read the first line of the request
+  //Read the first line of the request
   request = client.readStringUntil('\r'); 
   client.flush();
   
   request.remove(0, 5);                                           //Remove the http part
   request.remove(request.length() - 9, request.length());         //Remove the unnecessary tail
-  //checksum = request.charAt(request.length() - 1);                //Last character is the checksum value
-  //request.remove(request.length() - 1, request.length());         //Remove the checksum character to get the required data
   * howLong = request.length();                                   //Storing the length in the corresponding variable
-  
-  
-
-  //localChecksum = calcChecksum();
- 
-  //return true;
 }
+
 void loop() {
  
 }
