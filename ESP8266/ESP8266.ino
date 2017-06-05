@@ -17,7 +17,7 @@ Variables that is created and used in the chip
 String uuid;                           //uuid(MAC address) for the chip that will be used to control the chip over the cloud
 unsigned char eepromStorage[100];      //Used as a buffer for the EEPROM functions
 int userConnectedFlag;                 //Prevents from accessing two users getting connected to chip WiFi
-int chipHasADefinedState;              //When this is one that means the chip has all the details to get connected to home WiFi and there is a user connected to it
+unsigned char chipHasADefinedState;    //When this is one that means the chip has all the details to get connected to home WiFi and there is a user connected to it
 WiFiServer server(80);                 //When the chip is an accesspoint it listens to port 80 for client requests
 WiFiClient client;                     //To talk to the client connected
 String request;                        //Buffer for what is sent from the app
@@ -45,6 +45,7 @@ void defineAState()
   //This means the chip has a defined state and no need to connect to user app
   if(chipHasADefinedState == 1)
   {
+    Serial.println("going in here"); 
     //Acquiring the home WiFi network name and length of it from the EEPROM and storing them in the correponding variables
     eepromRead(1, 1, eepromStorage);
     homeWiFiNameLength = eepromStorage[0];
@@ -79,7 +80,7 @@ void defineAState()
       {
         continue;
       }
-
+      
       //Expecting the name of the home WiFi
       if(i == 0)
       {
@@ -131,21 +132,21 @@ void defineAState()
     //Communication between the phone and chip is done. Write the data to EEPROM
     eepromStorage[0] = chipHasADefinedState;
     eepromWrite(0, 1, eepromStorage);
-
+    
     eepromStorage[0] = homeWiFiNameLength;
     eepromWrite(1, 1, eepromStorage);
-    eepromStorageLoad(homeWiFiName, epromStorage);
+    eepromStorageLoad(homeWiFiName, eepromStorage);
     eepromWrite(2, homeWiFiNameLength, eepromStorage);
 
     eepromStorage[0] = homeWiFiPasswordLength;
     eepromWrite((2 + homeWiFiNameLength), 1, eepromStorage);
-    eepromStorageLoad(homeWiFiName, epromStorage);
+    eepromStorageLoad(homeWiFiName, eepromStorage);
     eepromWrite((3 + homeWiFiNameLength), homeWiFiPasswordLength, eepromStorage);
 
     //No need to store the size of the MAC ID because it is a constant 
-    eepromStorageLoad(uuid, epromStorage);
+    eepromStorageLoad(uuid, eepromStorage);
     eepromWrite((3 + homeWiFiNameLength + homeWiFiPasswordLength), WL_MAC_ADDR_LENGTH, eepromStorage);
-    
+ 
   }
 }
 
@@ -153,15 +154,14 @@ void setup() {
   initComs();
   initPins();
   defineAState();
-  Serial.println(homeWiFiName);
-  Serial.println(homeWiFiPassword);
+  eepromRead(0, 1, eepromStorage);
+  int data = eepromStorage[0];
+  Serial.println(String(data)); 
 }
 
 
 void requestCleanUp(int * howLong)
 {
-  //int localChecksum;
-  
   //Read the first line of the request
   request = client.readStringUntil('\r'); 
   client.flush();
@@ -230,7 +230,7 @@ void eepromRead(int startingAddress, int numberOfBytes, unsigned char * eepromSt
   
   for(i = 0; i < numberOfBytes; i++)
   {
-    eepromStorage[i] = EEPROM.read(i);
+    eepromStorage[i] = EEPROM.read(i + startingAddress);
   }
 }
 
@@ -240,7 +240,7 @@ void eepromWrite(int startingAddress, int numberOfBytes, unsigned char * eepromS
   
   for(i = 0; i < numberOfBytes; i++)
   {
-    EEPROM.write(i, eepromStorage[i]);
+    EEPROM.write((i + startingAddress), eepromStorage[i]);
   }
 }
 
