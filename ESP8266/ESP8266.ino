@@ -41,26 +41,28 @@ void defineAState()
   //Reading the flag for the state of the chip and updating the correponding state variable
   eepromRead(0, 1, eepromStorage);    
   chipHasADefinedState = eepromStorage[0];
-
+  
   //This means the chip has a defined state and no need to connect to user app
   if(chipHasADefinedState == 1)
   {
-    Serial.println("going in here"); 
     //Acquiring the home WiFi network name and length of it from the EEPROM and storing them in the correponding variables
     eepromRead(1, 1, eepromStorage);
     homeWiFiNameLength = eepromStorage[0];
     eepromRead(2, homeWiFiNameLength, eepromStorage);
     homeWiFiName = charArrayToString(eepromStorage, homeWiFiNameLength);
-
+    
     //Acquiring the home WiFi network password and length of it from the EEPROM and storing them in the correponding variables
     eepromRead((2 + homeWiFiNameLength), 1, eepromStorage);
     homeWiFiPasswordLength = eepromStorage[0];
     eepromRead((3 + homeWiFiNameLength), homeWiFiPasswordLength, eepromStorage);
     homeWiFiPassword = charArrayToString(eepromStorage, homeWiFiPasswordLength);
-
+    
     //Acquiring the uuid of the chip from the EEPROM and storing it in the correponding variable
-    eepromRead((3 + homeWiFiNameLength + homeWiFiPasswordLength), WL_MAC_ADDR_LENGTH, eepromStorage);
-    uuid = charArrayToString(eepromStorage, WL_MAC_ADDR_LENGTH);
+    eepromRead((3 + homeWiFiNameLength + homeWiFiPasswordLength), (2 * WL_MAC_ADDR_LENGTH), eepromStorage);
+    uuid = charArrayToString(eepromStorage, (2 * WL_MAC_ADDR_LENGTH));
+
+    //Saving the changes made to EEPROM
+    EEPROM.end();
   }
   //No previously defined state, so connect to the user app and get the details to go online
   else
@@ -140,13 +142,15 @@ void defineAState()
 
     eepromStorage[0] = homeWiFiPasswordLength;
     eepromWrite((2 + homeWiFiNameLength), 1, eepromStorage);
-    eepromStorageLoad(homeWiFiName, eepromStorage);
+    eepromStorageLoad(homeWiFiPassword, eepromStorage);
     eepromWrite((3 + homeWiFiNameLength), homeWiFiPasswordLength, eepromStorage);
 
     //No need to store the size of the MAC ID because it is a constant 
     eepromStorageLoad(uuid, eepromStorage);
-    eepromWrite((3 + homeWiFiNameLength + homeWiFiPasswordLength), WL_MAC_ADDR_LENGTH, eepromStorage);
- 
+    eepromWrite((3 + homeWiFiNameLength + homeWiFiPasswordLength), (2 * WL_MAC_ADDR_LENGTH), eepromStorage);
+    
+    //Saving the changes made to EEPROM
+    EEPROM.end();
   }
 }
 
@@ -154,9 +158,7 @@ void setup() {
   initComs();
   initPins();
   defineAState();
-  eepromRead(0, 1, eepromStorage);
-  int data = eepromStorage[0];
-  Serial.println(String(data)); 
+  
 }
 
 
