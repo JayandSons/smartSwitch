@@ -158,7 +158,7 @@ void setup() {
   initComs();
   initPins();
   defineAState();
-  
+  Serial.println("Going in here");
 }
 
 
@@ -265,4 +265,3 @@ String charArrayToString(unsigned char * charArrayToBeConverted, int numberOfCha
   }
   return temp;
 }
-
