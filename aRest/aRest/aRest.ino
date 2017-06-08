@@ -15,7 +15,7 @@
 // Clients
 WiFiClient client;
 PubSubClient aRestClient(client);
-
+char temp[100];
 // Create aREST instance
 aREST rest = aREST(aRestClient);
 
@@ -23,7 +23,7 @@ aREST rest = aREST(aRestClient);
 char* device_id = "MAC";
 
 // WiFi parameters
-char* ssid = "MyResNet Legacy";
+String ssid = "MyResNet Legacy";
 char* password = "";
 
 // Variables to be exposed to the API
@@ -33,6 +33,7 @@ int relayStatus;
 
 void setup()
 {
+  ssid.toCharArray(temp, 100);
   pinMode(2, OUTPUT);
   // Start Serial
   Serial.begin(115200);
@@ -51,15 +52,15 @@ void setup()
   // Give name & ID to the device (ID should be 6 characters long)
   rest.set_id(device_id);
   rest.set_name("Farmette");
-
+  WiFi.mode(WIFI_STA);
   // Connect to WiFi
   if(strlen(password))
   {
-    WiFi.begin(ssid, password);
+    WiFi.begin(temp, password);
   }
   else
   {
-    WiFi.begin(ssid);
+    WiFi.begin(temp);
   }
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
@@ -67,7 +68,6 @@ void setup()
   }
   Serial.println("");
   Serial.println("WiFi connected");
-
 }
 
 void loop() {
